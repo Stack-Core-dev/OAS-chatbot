@@ -32,15 +32,36 @@ body {
   max-height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
-  background: transparent;
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  background: rgba(23, 26, 33, 0.6);
   backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
   transform-origin: bottom right;
   animation: pop-in 220ms cubic-bezier(0.22, 1.4, 0.36, 1) both;
+  transition: width 240ms ease, height 240ms ease, max-width 240ms ease, max-height 240ms ease;
+}
+
+.chat-box.maximized {
+  width: 640px;
+  height: 720px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  border-radius: 16px;
+}
+
+.icon-button-minimize {
+  display: none;
+}
+
+.chat-box.maximized .icon-button-minimize {
+  display: inline-flex;
+}
+
+.chat-box.maximized .icon-button-maximize {
+  display: none;
 }
 
 @keyframes pop-in {
@@ -55,11 +76,15 @@ body {
 }
 
 .chat-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 14px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(26, 29, 36, 0.5);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  gap: 12px;
 }
 
 .chat-header h2 {
@@ -73,6 +98,16 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  text-align: center;
+  grid-column: 2;
+}
+
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  grid-column: 3;
+  justify-self: end;
 }
 
 .icon-button {
@@ -371,6 +406,8 @@ body {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: calc(1.5em * 4);
+  overflow-y: auto;
 }
 
 .reasoning {
@@ -390,12 +427,6 @@ body {
   border-radius: 8px;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
-}
-
-.reasoning-toggle:hover {
-  background: #23262e;
-  color: #fff;
-  border-color: #3a4150;
 }
 
 .chevron {
@@ -421,8 +452,7 @@ body {
   transition: max-height 260ms ease, opacity 200ms ease, margin-top 260ms ease;
 }
 
-.reasoning-open .reasoning-panel,
-.reasoning:hover .reasoning-panel {
+.reasoning-open .reasoning-panel {
   max-height: 220px;
   opacity: 1;
   margin-top: 8px;
@@ -579,4 +609,21 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.messages,
+.reasoning-text,
+.reasoning-panel,
+.markdown pre,
+.markdown table {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.messages::-webkit-scrollbar,
+.reasoning-text::-webkit-scrollbar,
+.reasoning-panel::-webkit-scrollbar,
+.markdown pre::-webkit-scrollbar,
+.markdown table::-webkit-scrollbar {
+  display: none;
 }

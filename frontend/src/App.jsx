@@ -35,16 +35,24 @@ function MessageContent({ message }) {
 
 function App() {
   const [isOpen, setIsOpen] = useState(false)
+  const [isMaximized, setIsMaximized] = useState(false)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const listRef = useRef(null)
+  const reasoningRef = useRef(null)
+
+  useEffect(() => {
+    if (reasoningRef.current) {
+      reasoningRef.current.scrollTop = reasoningRef.current.scrollHeight
+    }
+  }, [messages])
 
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight
     }
-  }, [messages, isOpen])
+  }, [messages, isOpen, isMaximized])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -117,19 +125,37 @@ function App() {
   return (
     <div className="widget">
       {isOpen && (
-        <section className="chat-box" aria-label="Chat">
+        <section className={`chat-box ${isMaximized ? 'maximized' : ''}`} aria-label="Chat">
           <header className="chat-header">
-            <div>
-              <h2>OAS-Assistant</h2>
+            <h2>OAS-Assistant</h2>
+            <div className="chat-header-actions">
+              <button
+                type="button"
+                className="icon-button icon-button-maximize"
+                onClick={() => setIsMaximized(true)}
+                aria-label="Maximize chat"
+                title="Maximize"
+              >
+                &#9633;
+              </button>
+              <button
+                type="button"
+                className="icon-button icon-button-minimize"
+                onClick={() => setIsMaximized(false)}
+                aria-label="Restore chat"
+                title="Restore"
+              >
+                &#10064;
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setIsOpen(false)}
+                aria-label="Close chat"
+              >
+                &times;
+              </button>
             </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => setIsOpen(false)}
-              aria-label="Close chat"
-            >
-              &times;
-            </button>
           </header>
 
           <div className="messages" ref={listRef}>
@@ -142,12 +168,14 @@ function App() {
                   <div className="reasoning-live">
                     <div className="reasoning-label">
                       Thinking
-                      <TypingDots />
+                      {(!message.reasoning) && <TypingDots />}
                     </div>
-                    <div className="reasoning-text">
-                      {message.reasoning}
-                      <span className="caret" />
-                    </div>
+                    {message.reasoning && (
+                      <div className="reasoning-text" ref={reasoningRef}>
+                        {message.reasoning}
+                        {message.thinking && <span className="caret" />}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -168,7 +196,7 @@ function App() {
                   </div>
                 )}
 
-                {message.streaming && !message.reasoning && message.content === '' && <TypingDots />}
+                {message.streaming && !message.thinking && !message.reasoning && message.content === '' && <TypingDots />}
 
                 <MessageContent message={message} />
 
