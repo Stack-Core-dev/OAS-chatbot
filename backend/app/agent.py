@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
@@ -9,6 +10,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 
 from app.config import get_settings
 from app.llm import LLMError, resolve_model
+from app.rag import build_context
 from app.tools import TOOLS
 
 settings = get_settings()
@@ -20,6 +22,7 @@ TOOL_MAP = {tool.name: tool for tool in TOOLS}
 
 class AgentState(MessagesState):
     tool_calls: int
+    rag_context: str
 
 
 class ReasoningChatOpenAI(ChatOpenAI):
@@ -83,7 +86,7 @@ def _extract_tool_call(text: str) -> dict[str, Any] | None:
     return {"name": name, "arguments": arguments if isinstance(arguments, dict) else {}}
 
 
-def _system_prompt() -> str:
+def _system_prompt(rag_context: str = "") -> str:
     lines = [
         "You are a helpful assistant with access to tools.",
         "",
@@ -103,11 +106,25 @@ def _system_prompt() -> str:
         'After a "Tool result" message, use the result to answer the user.',
         "If no tool is needed, answer the user's question directly.",
     ]
+    if rag_context:
+        lines += [
+            "",
+            "Document excerpts retrieved from the Digital DAAK user manual:",
+            "",
+            rag_context,
+            "",
+            "When the question is about Digital DAAK, base your answer on these excerpts",
+            "and cite pages like (page 7). If the excerpts do not contain the answer, say",
+            "so instead of inventing details.",
+        ]
     return "\n".join(lines)
 
 
 async def _call_model(state: AgentState, llm: ChatOpenAI) -> dict[str, Any]:
-    response = await llm.ainvoke([SystemMessage(content=_system_prompt()), *state["messages"]])
+    context = state.get("rag_context") or ""
+    response = await llm.ainvoke(
+        [SystemMessage(content=_system_prompt(context)), *state["messages"]]
+    )
     return {"messages": [response]}
 
 
@@ -237,11 +254,23 @@ async def run_agent_stream(
         for message in messages
     ]
 
+    rag_context = ""
+    last_question = next(
+        (message["content"] for message in reversed(messages) if message["role"] == "user"),
+        "",
+    )
+    if last_question:
+        try:
+            rag_context = await asyncio.to_thread(build_context, last_question)
+        except Exception:  # noqa: BLE001
+            rag_context = ""
+
     runs: dict[str, dict[str, Any]] = {}
 
     try:
         async for event in graph.astream_events(
-            {"messages": lc_messages, "tool_calls": 0}, version="v2"
+            {"messages": lc_messages, "tool_calls": 0, "rag_context": rag_context},
+            version="v2",
         ):
             kind = event["event"]
             if kind == "on_chat_model_stream":

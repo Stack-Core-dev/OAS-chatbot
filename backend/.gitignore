@@ -11,3 +11,4 @@ env/
 dist/
 build/
 Qwen3-Embedding-0.6B/
+chroma_db/
