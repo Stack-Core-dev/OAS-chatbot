@@ -75,7 +75,7 @@ frontend/
 - **llama.cpp server** running an OpenAI-compatible endpoint on port 8080 with the
   DeepSeek-R1 model, e.g.:
   ```powershell
-  D:\llama-cpp-cpu\llama-server.exe -m D:\llama-cpp-cpu\DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf --port 8080
+  .\llama-cpp\llama-server.exe -m D:\llama-cpp-cpu\DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf --port 8080
   ```
 - **Embedding model**: download `Qwen/Qwen3-Embedding-0.6B` (sentence-transformers
   format) into `backend/Qwen3-Embedding-0.6B`:
