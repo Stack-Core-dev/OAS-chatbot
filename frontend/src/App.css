@@ -373,8 +373,6 @@ body {
 }
 
 .reasoning-live {
-  border-left: 2px solid #3a4150;
-  padding-left: 10px;
   margin-bottom: 8px;
   animation: fade-in 240ms ease both;
 }

@@ -173,7 +173,6 @@ function App() {
                     {message.reasoning && (
                       <div className="reasoning-text" ref={reasoningRef}>
                         {message.reasoning}
-                        {message.thinking && <span className="caret" />}
                       </div>
                     )}
                   </div>
