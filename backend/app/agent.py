@@ -86,6 +86,30 @@ def _extract_tool_call(text: str) -> dict[str, Any] | None:
     return {"name": name, "arguments": arguments if isinstance(arguments, dict) else {}}
 
 
+_ENVELOPE_HINT = re.compile(r'"\s*(?:response|answer|text)\s*"\s*:', re.IGNORECASE)
+
+
+def _extract_direct_response(text: str) -> str | None:
+    """Unwrap {"tool": null, "response": "..."} style envelopes."""
+    if not text or "{" not in text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if end <= start:
+        return None
+    try:
+        obj = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict) or obj.get("tool") or obj.get("name"):
+        return None
+    for key in ("response", "answer", "text", "content"):
+        value = obj.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def _system_prompt(rag_context: str = "") -> str:
     lines = [
         "You are a helpful assistant with access to tools.",
@@ -104,18 +128,21 @@ def _system_prompt(rag_context: str = "") -> str:
         'Assistant: {"tool": "get_weather", "arguments": {"city": "Paris"}}',
         "",
         'After a "Tool result" message, use the result to answer the user.',
-        "If no tool is needed, answer the user's question directly.",
+        "If no tool is needed, answer the user's question directly in plain text.",
+        "Give only the answer - no notes about tools or process.",
     ]
     if rag_context:
         lines += [
             "",
-            "Document excerpts retrieved from the Digital DAAK user manual:",
+            "Document excerpts retrieved from the company knowledge base",
+            "(each block is tagged with its document file name and page):",
             "",
             rag_context,
             "",
-            "When the question is about Digital DAAK, base your answer on these excerpts",
-            "and cite pages like (page 7). If the excerpts do not contain the answer, say",
-            "so instead of inventing details.",
+            "When the question relates to these documents, base your answer on the",
+            "excerpts and cite the document and page like (PNP25.pdf, page 13).",
+            "If the excerpts do not contain the answer, say so instead of inventing",
+            "details.",
         ]
     return "\n".join(lines)
 
@@ -225,7 +252,13 @@ def _feed(entry: dict[str, Any], text: str) -> list[tuple[str, str]]:
             entry["mode"] = "suppressed"
             entry["buffer"] = ""
             return []
-        if "}" not in probe and len(probe) < 400:
+        direct = _extract_direct_response(buffer)
+        if direct is not None:
+            entry["mode"] = "streaming"
+            entry["buffer"] = ""
+            return [("delta", direct)]
+        limit = 2000 if _ENVELOPE_HINT.search(probe) else 400
+        if "}" not in probe and len(probe) < limit:
             entry["buffer"] = buffer
             return []
 
@@ -240,6 +273,9 @@ def _flush(entry: dict[str, Any]) -> list[tuple[str, str]]:
     buffer = entry["buffer"]
     if not buffer.strip() or _extract_tool_call(buffer) is not None:
         return []
+    direct = _extract_direct_response(buffer)
+    if direct is not None:
+        return [("delta", direct)]
     return [("delta", buffer)]
 
 
