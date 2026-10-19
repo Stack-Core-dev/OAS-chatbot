@@ -82,8 +82,16 @@ def _extract_tool_call(text: str) -> dict[str, Any] | None:
     name = obj.get("tool") or obj.get("name")
     if not isinstance(name, str):
         return None
-    arguments = obj.get("arguments") or obj.get("args") or {}
-    return {"name": name, "arguments": arguments if isinstance(arguments, dict) else {}}
+    arguments = obj.get("arguments") or obj.get("args")
+    if not isinstance(arguments, dict):
+        arguments = {}
+    if not arguments:
+        arguments = {
+            key: value
+            for key, value in obj.items()
+            if key not in ("tool", "name", "arguments", "args")
+        }
+    return {"name": name, "arguments": arguments}
 
 
 _ENVELOPE_HINT = re.compile(r'"\s*(?:response|answer|text)\s*"\s*:', re.IGNORECASE)
@@ -126,10 +134,18 @@ def _system_prompt(rag_context: str = "") -> str:
         "Example:",
         "User: What is the weather in Paris?",
         'Assistant: {"tool": "get_weather", "arguments": {"city": "Paris"}}',
+        "User: What does the manual say about annual leave?",
+        'Assistant: {"tool": "search_documents", "arguments": {"query": "annual leave entitlement"}}',
         "",
         'After a "Tool result" message, use the result to answer the user.',
         "If no tool is needed, answer the user's question directly in plain text.",
         "Give only the answer - no notes about tools or process.",
+        "",
+        "If the question is about AWT documents (policies, manuals, procedures)",
+        "and the excerpts below are missing or do not answer it, call",
+        "search_documents with different, focused keywords before replying. Only",
+        "if that search also finds nothing, say the information is not in the",
+        "documents. Never invent details.",
     ]
     if rag_context:
         lines += [
@@ -140,9 +156,9 @@ def _system_prompt(rag_context: str = "") -> str:
             rag_context,
             "",
             "When the question relates to these documents, base your answer on the",
-            "excerpts and cite the document and page like (PNP25.pdf, page 13).",
-            "If the excerpts do not contain the answer, say so instead of inventing",
-            "details.",
+            "excerpts. Include a document reference like (PNP25.pdf, page 13) ONLY",
+            "when the answer concerns policies or procedures; for every other answer",
+            "do not mention document names, page numbers, or citations.",
         ]
     return "\n".join(lines)
 
@@ -164,7 +180,11 @@ async def _run_tool(state: AgentState) -> dict[str, Any]:
         available = ", ".join(TOOL_MAP)
         observation = f"Tool error: unknown tool. Available tools: {available}."
     else:
-        schema_props = (tool.args or {}).get("properties") or {}
+        raw_args = tool.args or {}
+        if isinstance(raw_args.get("properties"), dict):
+            schema_props = raw_args["properties"]
+        else:
+            schema_props = raw_args
         if not schema_props:
             arguments = {}
         else:
@@ -173,6 +193,23 @@ async def _run_tool(state: AgentState) -> dict[str, Any]:
                 for key, value in call["arguments"].items()
                 if key in schema_props
             }
+            if not arguments:
+                string_props = [
+                    name
+                    for name, spec in schema_props.items()
+                    if isinstance(spec, dict) and spec.get("type") == "string"
+                ]
+                if len(string_props) == 1:
+                    fallback = next(
+                        (
+                            value
+                            for value in call["arguments"].values()
+                            if isinstance(value, str) and value.strip()
+                        ),
+                        None,
+                    )
+                    if fallback:
+                        arguments = {string_props[0]: fallback}
         try:
             result = await tool.ainvoke(arguments)
             observation = f"Tool result for {call['name']}: {result}"

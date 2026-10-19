@@ -2,8 +2,8 @@
 
 A local RAG chatbot for Army Welfare Trust (AWT) documents. It answers questions from a
 PDF knowledge base (Digital DAAK manual, P&P-25, communiqués, ...) with page citations,
-and can call tools (e.g. current date/time) when needed. Everything runs on your machine:
-no cloud APIs, no data leaves the box.
+and can call tools (current date/time, extra document searches) when needed. Everything
+runs on your machine: no cloud APIs, no data leaves the box.
 
 ```
 ┌─────────────────────────── BROWSER ───────────────────────────┐
@@ -15,7 +15,7 @@ no cloud APIs, no data leaves the box.
 │  FastAPI (uvicorn :8000)                                      │
 │  /api/chat/stream → agent.py (LangGraph)                      │
 │    ├─ rag.py  : embed question → ChromaDB → top-4 excerpts    │
-│    ├─ tools.py: get_current_datetime                          │
+│    ├─ tools.py: get_current_datetime, search_documents        │
 │    └─ llm.py  : resolves model from llama.cpp                 │
 └───────────┬──────────────────────────────┬────────────────────┘
             │ OpenAI-compatible API        │ vector search
@@ -38,7 +38,9 @@ no cloud APIs, no data leaves the box.
 5. **Tool protocol**: the 8B model has no native tool support, so it requests tools by
    printing `{"tool": "get_current_datetime", "arguments": {}}`. The agent detects that
    JSON, hides it from the stream, executes the tool, feeds the result back, and the
-   model writes the final answer (max 3 tool loops).
+   model writes the final answer (max 4 tool loops). If the injected excerpts do not
+   answer a document question, the model can call `search_documents` with refined
+   keywords to query the knowledge base again — the hybrid RAG fallback.
 6. The stream ends with a `done` event. The UI shows a live "Thinking" box for the
    reasoning phase, then the answer with markdown rendering.
 
@@ -54,7 +56,7 @@ backend/
     api/routes.py      /api/health, /api/chat, /api/chat/stream (SSE)
     agent.py           LangGraph agent, tool JSON protocol, stream filtering
     rag.py             ChromaDB retrieval + context builder
-    tools.py           tool registry (get_current_datetime)
+    tools.py           tool registry (get_current_datetime, search_documents)
     llm.py             llama.cpp client + model alias resolution
   scripts/             standalone ingestion tooling (not imported by the app)
     ingest_pdf.py      PDF → chunks → embeddings → ChromaDB (OCR fallback)
