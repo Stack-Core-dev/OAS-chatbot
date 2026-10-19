@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     llama_base_url: str = "http://127.0.0.1:8080"
-    llama_model: str = "gemma-4-E2B-it-Q4_K_M"
+    # llama_model: str = "DeepSeek-R1-0528-Qwen3-8B-Q4_K_M"
+    # llama_model: str = "gemma-4-E2B-it-Q4_K_M"
+    llama_model: str = "Qwen3-4B-Thinking-2507.Q4_K_M"
+
     llama_timeout: float = 300.0
 
     chroma_dir: Path = BACKEND_DIR / "chroma_db"

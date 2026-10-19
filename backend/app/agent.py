@@ -70,11 +70,8 @@ def _extract_tool_call(text: str) -> dict[str, Any] | None:
     if not text or "{" not in text:
         return None
     start = text.find("{")
-    end = text.rfind("}")
-    if end <= start:
-        return None
     try:
-        obj = json.loads(text[start : end + 1])
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
     except json.JSONDecodeError:
         return None
     if not isinstance(obj, dict):
@@ -102,11 +99,8 @@ def _extract_direct_response(text: str) -> str | None:
     if not text or "{" not in text:
         return None
     start = text.find("{")
-    end = text.rfind("}")
-    if end <= start:
-        return None
     try:
-        obj = json.loads(text[start : end + 1])
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
     except json.JSONDecodeError:
         return None
     if not isinstance(obj, dict) or obj.get("tool") or obj.get("name"):
@@ -144,8 +138,11 @@ def _system_prompt(rag_context: str = "") -> str:
         "If the question is about AWT documents (policies, manuals, procedures)",
         "and the excerpts below are missing or do not answer it, call",
         "search_documents with different, focused keywords before replying. Only",
-        "if that search also finds nothing, say the information is not in the",
-        "documents. Never invent details.",
+        "if that search also finds nothing, say plainly that you do not have that",
+        "information. Never invent details.",
+        "",
+        "Do not mention documents, files, pages, excerpts, or the knowledge base",
+        "in your reply unless the user explicitly asks for sources or references.",
     ]
     if rag_context:
         lines += [
@@ -156,9 +153,9 @@ def _system_prompt(rag_context: str = "") -> str:
             rag_context,
             "",
             "When the question relates to these documents, base your answer on the",
-            "excerpts. Include a document reference like (PNP25.pdf, page 13) ONLY",
-            "when the answer concerns policies or procedures; for every other answer",
-            "do not mention document names, page numbers, or citations.",
+            "excerpts. Do not mention document names, page numbers, or citations",
+            "unless the user explicitly asks for sources or references; only then",
+            "cite like (PNP25.pdf, page 13).",
         ]
     return "\n".join(lines)
 
@@ -279,6 +276,15 @@ def _feed(entry: dict[str, Any], text: str) -> list[tuple[str, str]]:
 
     buffer = entry["buffer"] + text
     probe = _CALL_LEAD.sub("", buffer)
+    lowered = buffer.lstrip().lower()
+
+    if stripped_lead := lowered:
+        for lead in ("```json", "```", "assistant:", "assistant", "bot:", "bot"):
+            if lead.startswith(stripped_lead):
+                if len(buffer) < 40:
+                    entry["buffer"] = buffer
+                    return []
+                break
 
     if not probe:
         if len(buffer) < 40:
@@ -295,7 +301,7 @@ def _feed(entry: dict[str, Any], text: str) -> list[tuple[str, str]]:
             entry["buffer"] = ""
             return [("delta", direct)]
         limit = 2000 if _ENVELOPE_HINT.search(probe) else 400
-        if "}" not in probe and len(probe) < limit:
+        if len(probe) < limit:
             entry["buffer"] = buffer
             return []
 

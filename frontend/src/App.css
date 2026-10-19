@@ -45,10 +45,10 @@ body {
 }
 
 .chat-box.maximized {
-  width: 640px;
-  height: 720px;
+  width: min(640px, calc(100vw - 48px));
+  height: min(720px, calc(100vh - 124px));
   max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - 124px);
   border-radius: 16px;
 }
 
@@ -130,6 +130,7 @@ body {
 
 .messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
   display: flex;
