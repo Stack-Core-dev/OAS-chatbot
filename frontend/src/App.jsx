@@ -92,22 +92,9 @@ function Welcome() {
   }, [])
 
   return (
-    <div className="welcome welcome-go">
-      <div className={`hero ${wave ? 'welcome-wave' : ''}`}>
-        <div className="robot hero-robot">
-          <Robot />
-        </div>
-        <div className="hero-text">
-          <h3>
-            Assalam-o-Alaikum! <span className="hand">&#128075;</span>
-          </h3>
-          <h4>I&apos;m your AWT Assistant</h4>
-          <p>Ask me about AWT policies, procedures, business units, or contacts.</p>
-          <span className="online-pill">
-            <i aria-hidden="true" />
-            Online &middot; Always here for you
-          </span>
-        </div>
+    <div className={`welcome welcome-go ${wave ? 'welcome-wave' : ''}`}>
+      <div className="robot hero-robot">
+        <Robot />
       </div>
     </div>
   )
@@ -132,6 +119,13 @@ function MessageContent({ message }) {
   )
 }
 
+function createSessionId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
+  }
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function App() {
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -139,6 +133,7 @@ function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [sessionId, setSessionId] = useState(createSessionId)
   const listRef = useRef(null)
   const reasoningRef = useRef(null)
   const inputRef = useRef(null)
@@ -180,6 +175,13 @@ function App() {
       setIsClosing(false)
       closeTimerRef.current = null
     }, 320)
+  }
+
+  function startNewChat() {
+    if (sending) return
+    setMessages([])
+    setInput('')
+    setSessionId(createSessionId())
   }
 
   function handleLauncherClick() {
@@ -227,7 +229,7 @@ function App() {
             return [...prev.slice(0, -1), { ...last, content: last.content + delta, thinking: false }]
           })
         },
-      })
+      }, sessionId)
     } catch (error) {
       setMessages((prev) => {
         const last = prev[prev.length - 1]
@@ -267,6 +269,16 @@ function App() {
           <header className="chat-header">
             <h2>AWT-Assistant</h2>
             <div className="chat-header-actions">
+              <button
+                type="button"
+                className="new-chat-button"
+                onClick={startNewChat}
+                disabled={sending}
+                aria-label="Start new chat"
+                title="Start a new session"
+              >
+                New chat
+              </button>
               <button
                 type="button"
                 className="icon-button icon-button-maximize"

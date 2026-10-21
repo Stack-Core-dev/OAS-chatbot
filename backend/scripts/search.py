@@ -41,7 +41,7 @@ def query_prompt(model_dir: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Search the local ChromaDB collection.")
     parser.add_argument("query")
-    parser.add_argument("--k", type=int, default=4)
+    parser.add_argument("--k", type=int, default=3)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--chroma-dir", type=Path, default=DEFAULT_CHROMA_DIR)
     parser.add_argument("--collection", default=DEFAULT_COLLECTION)

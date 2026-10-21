@@ -29,7 +29,12 @@ class Settings(BaseSettings):
     chroma_dir: Path = BACKEND_DIR / "chroma_db"
     embedding_model_dir: Path = BACKEND_DIR / "Qwen3-Embedding-0.6B"
     rag_collection: str = "oas_documents"
-    rag_top_k: int = 4
+    rag_top_k: int = 3
+
+    admin_password: str = ""
+    admin_session_secret: str = ""
+    admin_session_hours: int = 12
+    admin_db_path: Path = BACKEND_DIR / "admin.db"
 
     @property
     def cors_origin_list(self) -> list[str]:

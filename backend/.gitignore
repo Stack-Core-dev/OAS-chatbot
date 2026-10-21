@@ -12,3 +12,6 @@ dist/
 build/
 Qwen3-Embedding-0.6B/
 chroma_db/
+admin.db
+admin.db-shm
+admin.db-wal

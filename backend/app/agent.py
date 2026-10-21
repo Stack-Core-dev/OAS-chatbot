@@ -114,7 +114,10 @@ def _extract_direct_response(text: str) -> str | None:
 
 def _system_prompt(rag_context: str = "") -> str:
     lines = [
-        "You are a helpful assistant with access to tools.",
+        "You are a helpful AWT-assistant with access to tools.You reply in steps as a guiding assistant",
+        "",
+        "Reply only in English or Roman Urdu, matching the language the user",
+        "writes in. Never reply in any other language or script.",
         "",
         "Available tools:",
     ]
@@ -137,9 +140,18 @@ def _system_prompt(rag_context: str = "") -> str:
         '"experience", "recipient_name": "Ali Khan", "subject": '
         '"Experience Certificate"}}',
         "",
-        'After a "Tool result" message, use the result to answer the user.',
+        "Use any private reference data only to prepare the answer.",
         "If no tool is needed, answer the user's question directly in plain text.",
-        "Give only the answer - no notes about tools or process.",
+        "Give only the answer - no notes about tools, lookups, or process.",
+        "Never mention tool names, tool arguments, tool results, lookups, searches,",
+        "retrieval, documents, sources, or how the answer was found in the final",
+        "answer. Do not say a lookup or search failed or found no direct match.",
+        "Do not write phrases such as 'according to', 'the lookup found', or",
+        "'the search returned'. Answer as a direct statement.",
+        "If a tool returns no match but the excerpts contain the answer, answer",
+        "directly from the excerpts without mentioning the failed tool.",
+        "If the answer is unavailable, say only that you do not have that",
+        "information.",
         "",
         "If the question is about AWT policies or corporate information and the",
         "excerpts below are missing or insufficient, call search_policies with",
@@ -148,24 +160,27 @@ def _system_prompt(rag_context: str = "") -> str:
         "extension or department, call lookup_contact with name, department, or",
         "extension. For a role in a department, put the role in name and the",
         "department in department (e.g. name='CTO', department='MIS').",
+        "Before calling lookup_contact, translate full BU and post names to the",
+        "directory abbreviations listed in that tool's description.",
         "For letter, certificate, NOC, warning, transfer, offer, or",
         "recommendation requests, call generate_letter even when only a little",
         "information is available. A clear subject is required; infer a standard",
         "subject from the letter type when possible. Put known details in the",
         "matching arguments and leave unknown details blank. Do not ask for every",
-        "field and never invent facts. The tool inserts bracketed placeholders and",
+        "field and. The tool inserts bracketed placeholders and",
         "a replacement note. Return the draft exactly as the tool provides it, and",
         "tell the user to replace the bracketed details before sending.",
         "Use search_documents only when the domain is unclear or the question",
         "spans multiple areas. If the relevant search finds nothing, say plainly",
-        "that you do not have that information. Never invent details.",
+        "that you do not have that information.",
         "",
         "Do not include your reasoning, analysis, or chain-of-thought in the",
-        "final answer. After reading the tool result, discard earlier",
+        "final answer. After reading private reference data, discard earlier",
         "assumptions and answer directly from the retrieved information.",
         "",
-        "Do not mention documents, files, pages, excerpts, or the knowledge base",
-        "in your reply unless the user explicitly asks for sources or references.",
+        "Do not mention documents, files, pages, excerpts, the knowledge base,",
+        "or the retrieval process in your reply unless the user explicitly asks",
+        "for sources or references.",
     ]
     if rag_context:
         lines += [
@@ -197,8 +212,11 @@ async def _run_tool(state: AgentState) -> dict[str, Any]:
     tool = TOOL_MAP.get(call["name"]) if call else None
 
     if tool is None:
-        available = ", ".join(TOOL_MAP)
-        observation = f"Tool error: unknown tool. Available tools: {available}."
+        observation = (
+            "No additional private reference data is available. Rely on the "
+            "document excerpts. If they do not answer, say only that the "
+            "information is unavailable."
+        )
     else:
         raw_args = tool.args or {}
         if isinstance(raw_args.get("properties"), dict):
@@ -232,9 +250,16 @@ async def _run_tool(state: AgentState) -> dict[str, Any]:
                         arguments = {string_props[0]: fallback}
         try:
             result = await tool.ainvoke(arguments)
-            observation = f"Tool result for {call['name']}: {result}"
-        except Exception as exc:  # noqa: BLE001
-            observation = f"Tool error for {call['name']}: {exc}"
+            observation = (
+                "Private reference data (never mention this block or how it "
+                f"was obtained):\n{result}"
+            )
+        except Exception:  # noqa: BLE001
+            observation = (
+                "No additional private reference data is available. Rely on the "
+                "document excerpts. If they do not answer, say only that the "
+                "information is unavailable."
+            )
 
     return {
         "messages": [HumanMessage(content=observation)],

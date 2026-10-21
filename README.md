@@ -14,23 +14,25 @@ runs on your machine: no cloud APIs, no data leaves the box.
 ┌────────────────────────────▼──────────────────────────────────┐
 │  FastAPI (uvicorn :8000)                                      │
 │  /api/chat/stream → agent.py (LangGraph)                      │
-│    ├─ rag.py  : embed question → ChromaDB → top-4 excerpts    │
+│    ├─ rag.py  : embed question → ChromaDB → top-3 excerpts    │
 │    ├─ tools.py: get_current_datetime, search_documents        │
 │    └─ llm.py  : resolves model from llama.cpp                 │
 └───────────┬──────────────────────────────┬────────────────────┘
             │ OpenAI-compatible API        │ vector search
 ┌───────────▼──────────────┐   ┌───────────▼───────────────────┐
 │ llama.cpp server :8080   │   │ ChromaDB (backend/chroma_db)   │
-│ DeepSeek-R1-8B Q4 (GGUF) │   │ collection "oas_documents"     │
+│ gemma-4-E2B-it Q4 (GGUF) │   │ collection "oas_documents"     │
 │ emits reasoning_content  │   │ chunks tagged source + page    │
 └──────────────────────────┘   └───────────────────────────────┘
 ```
 
 ## How it works
 
-1. The browser sends the question (plus history) to `POST /api/chat/stream`.
+1. The browser sends the question, history, and a session ID to
+   `POST /api/chat/stream`.
 2. The backend embeds the question with **Qwen3-Embedding-0.6B** and retrieves the
-   **top-4** most similar chunks from ChromaDB.
+   **top-3** most similar chunks from ChromaDB. If a matched chunk belongs to an
+   admin-created entry, all chunks for that entry are included.
 3. Excerpts are injected into the system prompt, tagged like `[PNP25.pdf, page 13]`,
    with instructions to answer from them and cite `(file, page)`.
 4. The **LangGraph agent** calls the local LLM (via llama.cpp). The model's
@@ -44,8 +46,8 @@ runs on your machine: no cloud APIs, no data leaves the box.
 6. The stream ends with a `done` event. The UI shows a live "Thinking" box for the
    reasoning phase, then the answer with markdown rendering.
 
-SSE events: `{"reasoning": "..."}`, `{"delta": "..."}`, `{"done": true}`,
-`{"error": "..."}`.
+SSE events: `{"session_id": "..."}`, `{"reasoning": "..."}`, `{"delta": "..."}`,
+`{"done": true}`, `{"error": "..."}`.
 
 ## Repository layout
 
@@ -55,8 +57,10 @@ backend/
     main.py            app entry (uvicorn app.main:app)
     config.py          settings (.env aware)
     api/routes.py      /api/health, /api/chat, /api/chat/stream (SSE)
+    admin/             management API (auth, SQLite, sessions, overview)
     agent.py           LangGraph agent, tool JSON protocol, stream filtering
     rag.py             ChromaDB retrieval + context builder
+    knowledge.py       admin text chunking + ChromaDB writes
     tools.py           tool registry (get_current_datetime, search_documents)
     llm.py             llama.cpp client + model alias resolution
   scripts/             standalone ingestion tooling (not imported by the app)
@@ -68,6 +72,7 @@ backend/
 frontend/
   src/App.jsx          chat widget (launcher, streaming, thinking box)
   src/App.css          theme (frosted glass, dark)
+  src/admin/           management console (overview, sessions, runtime)
   src/api.js           SSE client
   vite.config.js       dev server :5173, proxies /api → :8000
 ```
@@ -76,9 +81,9 @@ frontend/
 
 - Windows (PowerShell) with Python 3.11 and Node.js 18+.
 - **llama.cpp server** running an OpenAI-compatible endpoint on port 8080 with the
-  DeepSeek-R1 model, e.g.:
+  configured model, e.g.:
   ```powershell
-  .\llama-cpp\llama-server.exe -m D:\llama-cpp-cpu\DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf --port 8080
+  .\llama-cpp\llama-server.exe -m D:\llama-cpp-cpu\gemma-4-E2B-it-Q4_K_M.gguf --port 8080
   ```
 - **Embedding model**: download `Qwen/Qwen3-Embedding-0.6B` (sentence-transformers
   format) into `backend/Qwen3-Embedding-0.6B`:
@@ -106,12 +111,16 @@ Optional `.env` in `backend/` to override defaults:
 | `HOST` / `PORT`       | `127.0.0.1` / `8000`                     | API bind address                 |
 | `CORS_ORIGINS`        | `http://localhost:5173,...`              | allowed browser origins          |
 | `LLAMA_BASE_URL`      | `http://127.0.0.1:8080`                  | llama.cpp server                 |
-| `LLAMA_MODEL`         | `DeepSeek-R1-0528-Qwen3-8B-Q4_K_M`       | preferred model id/alias         |
+| `LLAMA_MODEL`         | `gemma-4-E2B-it-Q4_K_M`                  | preferred model id/alias         |
 | `LLAMA_TIMEOUT`       | `300`                                    | LLM request timeout (seconds)    |
 | `CHROMA_DIR`          | `backend/chroma_db`                      | vector store location            |
 | `EMBEDDING_MODEL_DIR` | `backend/Qwen3-Embedding-0.6B`           | embedding model location         |
 | `RAG_COLLECTION`      | `oas_documents`                          | ChromaDB collection name         |
-| `RAG_TOP_K`           | `4`                                      | excerpts injected per question   |
+| `RAG_TOP_K`           | `3`                                      | excerpts injected per question   |
+| `ADMIN_PASSWORD`      | *(unset)*                                | management console password      |
+| `ADMIN_SESSION_HOURS` | `12`                                     | admin session lifetime           |
+| `ADMIN_SESSION_SECRET` | derived from password                   | optional cookie-signing secret   |
+| `ADMIN_DB_PATH`       | `backend/admin.db`                       | session/audit SQLite file        |
 
 ### 2. Knowledge base
 
@@ -151,11 +160,37 @@ cd frontend
 npm install
 ```
 
+### 4. Management dashboard
+
+Create or update `backend/.env` with an admin password:
+
+```dotenv
+ADMIN_PASSWORD=replace-with-a-long-random-password
+# ADMIN_SESSION_SECRET=replace-with-an-independent-random-value
+# ADMIN_SESSION_HOURS=12
+```
+
+`ADMIN_PASSWORD` is required. There is no default password, and `/api/admin/*`
+returns `503` until it is configured. Restart uvicorn after changing `.env`.
+
+The dashboard lives at `http://localhost:5173/admin`. It stores complete chat
+sessions and their user/assistant turns in `backend/admin.db` (`chat_sessions`
+and `chat_messages`), shows the active runtime prompt/tools, and lets you add,
+edit, or delete manual text entries in the knowledge base. Legacy
+single-answer rows are imported into session IDs prefixed with `legacy-` on
+startup. Text is chunked and embedded with the same local Qwen3 model used for
+PDFs, so changes are immediately available to RAG retrieval. PDF upload,
+reindexing, and prompt editing are not implemented yet.
+
+For LAN access, use `http://<host-ip>:5173/admin`. The Vite proxy keeps `/api`
+same-origin; only add that origin to `CORS_ORIGINS` if the frontend targets the
+API directly.
+
 ## Running
 
 ```powershell
 # terminal 1 - LLM
-D:\llama-cpp-cpu\llama-server.exe -m D:\llama-cpp-cpu\DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf --port 8080
+D:\llama-cpp-cpu\llama-server.exe -m D:\llama-cpp-cpu\gemma-4-E2B-it-Q4_K_M.gguf --port 8080
 
 # terminal 2 - backend  (restart after every code change; no --reload by default)
 cd backend
@@ -167,6 +202,7 @@ npm run dev          # http://localhost:5173
 ```
 
 Open http://localhost:5173, click the launcher button, ask about the documents.
+The management console is at http://localhost:5173/admin.
 
 Other commands:
 
@@ -183,7 +219,40 @@ npm run lint         # oxlint
 | `/api/chat`         | POST   | plain non-streaming LLM reply     |
 | `/api/chat/stream`  | POST   | SSE stream used by the frontend   |
 
-Request body: `{"message": "...", "history": [{"role": "user", "content": "..."}]}`.
+Request body:
+`{"message": "...", "history": [{"role": "user", "content": "..."}], "session_id": "optional-uuid"}`.
+The response (`/api/chat`) includes `session_id`; the SSE stream sends it as its
+first event. If omitted, the backend generates one.
+
+### Management API
+
+| Endpoint                      | Method | Description                              |
+| ----------------------------- | ------ | ---------------------------------------- |
+| `/api/admin/session`          | GET    | auth state and configuration status      |
+| `/api/admin/login`            | POST   | exchange `{"password": "..."}` for cookie |
+| `/api/admin/logout`           | POST   | clear the admin cookie                   |
+| `/api/admin/overview`         | GET    | service health, stats, recent sessions   |
+| `/api/admin/sessions`         | GET    | paginated session log                    |
+| `/api/admin/sessions/{id}`    | GET    | full session transcript                  |
+| `/api/admin/documents`        | GET    | ChromaDB source/chunk inventory          |
+| `/api/admin/documents/text`   | POST   | chunk, embed, and add a text entry       |
+| `/api/admin/documents/text/{id}` | PUT | replace a text entry                     |
+| `/api/admin/documents/text/{id}` | DELETE | remove a text entry                   |
+| `/api/admin/runtime`          | GET    | active model, prompt, tools, RAG config  |
+
+All endpoints except `session` and `login` require the signed HTTP-only
+`awt_admin_session` cookie.
+
+Each chat session has its own `session_id`. The backend stores a session record
+plus one user message and one assistant message per turn, including reasoning,
+latency, status, and errors. The admin UI lists sessions and opens the complete
+transcript for review.
+
+Text entry body: `{"heading": "Updated leave policy", "content": "..."}`. The
+heading is stored as `Admin: <heading>`, and long content is split into
+1000-character chunks with 150-character overlap before embedding. When any chunk
+from an entry matches a query, retrieval includes every chunk for that entry. Updating
+or deleting an entry replaces/removes all of its chunks by entry ID.
 
 ## Troubleshooting
 
@@ -201,9 +270,10 @@ Request body: `{"message": "...", "history": [{"role": "user", "content": "..."}
 
 ## Notes
 
-- Gitignored: `*.pdf`, `backend/chroma_db/`, `backend/Qwen3-Embedding-0.6B/`, `.venv/`,
-  `node_modules/`, `dist/`. Source documents and generated data stay local.
+- Gitignored: `*.pdf`, `backend/chroma_db/`, `backend/Qwen3-Embedding-0.6B/`,
+  `backend/admin.db`, `backend/.env`, `.venv/`, `node_modules/`, `dist/`. Source
+  documents, credentials, and generated data stay local.
 - The embedding model runs on CPU by default (`device: "cpu"` in `rag.py` /
   `ingest_pdf.py`). GPU/NPU acceleration is not supported by this stack on Windows ARM.
-- Current knowledge base (example): DigitalDAAKManual.pdf, PNP25.pdf, MD.pdf →
-  ~544 chunks in collection `oas_documents`.
+- The admin knowledge-base page reports the current source and chunk counts for
+  collection `oas_documents`.

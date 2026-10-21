@@ -8,11 +8,11 @@ export async function checkHealth() {
   return response.json()
 }
 
-export async function streamMessage(message, history = [], handlers = {}) {
+export async function streamMessage(message, history = [], handlers = {}, sessionId) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, session_id: sessionId }),
   })
 
   if (!response.ok) {
