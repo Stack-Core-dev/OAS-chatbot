@@ -21,8 +21,8 @@ class Settings(BaseSettings):
 
     llama_base_url: str = "http://127.0.0.1:8080"
     # llama_model: str = "DeepSeek-R1-0528-Qwen3-8B-Q4_K_M"
-    # llama_model: str = "gemma-4-E2B-it-Q4_K_M"
-    llama_model: str = "Qwen3-4B-Thinking-2507.Q4_K_M"
+    llama_model: str = "gemma-4-E2B-it-Q4_K_M"  
+    # llama_model: str = "Mellum2.1-12B-A2.5B-Thinking-Q4_K_M"
 
     llama_timeout: float = 300.0
 

@@ -101,7 +101,7 @@ function Welcome() {
           <h3>
             Assalam-o-Alaikum! <span className="hand">&#128075;</span>
           </h3>
-          <h4>I&apos;m your OAS Assistant</h4>
+          <h4>I&apos;m your AWT Assistant</h4>
           <p>Ask me about AWT policies, procedures, business units, or contacts.</p>
           <span className="online-pill">
             <i aria-hidden="true" />
@@ -265,7 +265,7 @@ function App() {
           aria-label="Chat"
         >
           <header className="chat-header">
-            <h2>OAS-Assistant</h2>
+            <h2>AWT-Assistant</h2>
             <div className="chat-header-actions">
               <button
                 type="button"

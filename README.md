@@ -1,4 +1,4 @@
-# OAS-Assistant
+# AWT-Assistant
 
 A local RAG chatbot for Army Welfare Trust (AWT) documents. It answers questions from a
 PDF knowledge base (Digital DAAK manual, P&P-25, communiqués, ...) with page citations,
@@ -33,18 +33,19 @@ runs on your machine: no cloud APIs, no data leaves the box.
    **top-4** most similar chunks from ChromaDB.
 3. Excerpts are injected into the system prompt, tagged like `[PNP25.pdf, page 13]`,
    with instructions to answer from them and cite `(file, page)`.
-4. The **LangGraph agent** calls the local LLM (DeepSeek-R1 via llama.cpp). The model's
+4. The **LangGraph agent** calls the local LLM (via llama.cpp). The model's
    `reasoning_content` is streamed separately from the answer.
-5. **Tool protocol**: the 8B model has no native tool support, so it requests tools by
-   printing `{"tool": "get_current_datetime", "arguments": {}}`. The agent detects that
-   JSON, hides it from the stream, executes the tool, feeds the result back, and the
-   model writes the final answer (max 4 tool loops). If the injected excerpts do not
-   answer a document question, the model can call `search_documents` with refined
+5. **Tool protocol**: the local model has no native tool support, so it requests tools
+   by printing `{"tool": "get_current_datetime", "arguments": {}}`. The agent detects
+   that JSON, hides it from the stream, executes the tool, feeds the result back, and
+   the model writes the final answer (max 4 tool loops). If the injected excerpts do
+   not answer a document question, the model can call `search_documents` with refined
    keywords to query the knowledge base again — the hybrid RAG fallback.
 6. The stream ends with a `done` event. The UI shows a live "Thinking" box for the
    reasoning phase, then the answer with markdown rendering.
 
-SSE events: `{"reasoning": "..."}`, `{"delta": "..."}`, `{"done": true}`, `{"error": "..."}`.
+SSE events: `{"reasoning": "..."}`, `{"delta": "..."}`, `{"done": true}`,
+`{"error": "..."}`.
 
 ## Repository layout
 

@@ -9,3 +9,4 @@ pypdf==6.21.0
 pymupdf==1.28.2
 rapidocr-onnxruntime==1.4.4
 cryptography==50.0.2
+psutil==7.2.2

@@ -11,11 +11,12 @@ Run from the backend directory:
 """
 
 import argparse
-import math
 import shutil
 import sys
+import time
 from pathlib import Path
 
+import psutil
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -165,6 +166,26 @@ def load_embeddings(model_dir: Path) -> HuggingFaceEmbeddings:
     )
 
 
+def _format_duration(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _format_system_status(process: psutil.Process) -> str:
+    memory = psutil.virtual_memory()
+    process_mb = process.memory_info().rss / (1024 * 1024)
+    return (
+        f"CPU {psutil.cpu_percent(interval=None):4.1f}% | "
+        f"RAM {memory.percent:4.1f}% "
+        f"({memory.used / 1024**3:.1f}/{memory.total / 1024**3:.1f} GB) | "
+        f"proc {process_mb:.0f} MB"
+    )
+
+
 def main() -> int:
     args = parse_args()
 
@@ -205,12 +226,28 @@ def main() -> int:
     )
 
     total = len(documents)
-    step = max(1, math.ceil(total / 10))
-    with tqdm(total=total, unit="chunk", desc="Embedding", ncols=80) as bar:
-        for start in range(0, total, step):
-            batch = documents[start : start + step]
-            vector_store.add_documents(batch, batch_size=len(batch))
-            bar.update(len(batch))
+    width = len(str(total))
+    process = psutil.Process()
+    psutil.cpu_percent(interval=None)
+    started = time.perf_counter()
+    print(f"Embedding {total} chunks (system status after each chunk) ...")
+    for index, document in enumerate(documents, start=1):
+        chunk_started = time.perf_counter()
+        vector_store.add_documents([document], batch_size=1)
+        now = time.perf_counter()
+        elapsed = now - started
+        average = elapsed / index
+        remaining = average * (total - index)
+        metadata = document.metadata
+        print(
+            f"[{index:>{width}}/{total}] {index / total * 100:5.1f}% | "
+            f"{metadata.get('source', '?')} p.{metadata.get('page', '?')} "
+            f"chunk {metadata.get('chunk', '?')} | "
+            f"this {now - chunk_started:.2f}s | avg {average:.2f}s/chunk | "
+            f"elapsed {_format_duration(elapsed)} | ETA {_format_duration(remaining)} | "
+            f"{_format_system_status(process)}",
+            flush=True,
+        )
 
     total = vector_store._collection.count()
     print(f"Done. Collection '{args.collection}' now holds {total} chunks.")

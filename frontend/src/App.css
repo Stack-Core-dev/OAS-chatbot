@@ -457,6 +457,7 @@ body {
 
 .markdown p {
   margin: 8px 0;
+  white-space: pre-wrap;
 }
 
 .markdown h1,
