@@ -299,11 +299,19 @@ async def get_graph() -> Any:
     global _graph
     if _graph is None:
         model = await resolve_model()
+        # llama.cpp:
+        # llm = ReasoningChatOpenAI(
+        #     model=model,
+        #     base_url=f"{settings.llama_base_url}/v1",
+        #     api_key="llama-cpp",
+        #     timeout=settings.llama_timeout,
+        #     temperature=0.6,
+        # )
         llm = ReasoningChatOpenAI(
             model=model,
-            base_url=f"{settings.llama_base_url}/v1",
-            api_key="llama-cpp",
-            timeout=settings.llama_timeout,
+            base_url=f"{settings.geniex_base_url}/v1",
+            api_key="geniex",
+            timeout=settings.geniex_timeout,
             temperature=0.6,
         )
         _graph = _build_graph(llm)

@@ -19,12 +19,16 @@ class Settings(BaseSettings):
     port: int = 8000
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    llama_base_url: str = "http://127.0.0.1:8080"
+    # llama.cpp configuration (kept for reference):
+    # llama_base_url: str = "http://127.0.0.1:8080"
     # llama_model: str = "DeepSeek-R1-0528-Qwen3-8B-Q4_K_M"
-    llama_model: str = "gemma-4-E2B-it-Q4_K_M"  
+    # llama_model: str = "gemma-4-E2B-it-Q4_K_M"
     # llama_model: str = "Mellum2.1-12B-A2.5B-Thinking-Q4_K_M"
+    # llama_timeout: float = 300.0
 
-    llama_timeout: float = 300.0
+    geniex_base_url: str = "http://127.0.0.1:18181"
+    geniex_model: str = "local/gemma-4-e2b-q4_0:Q4_0"
+    geniex_timeout: float = 300.0
 
     chroma_dir: Path = BACKEND_DIR / "chroma_db"
     embedding_model_dir: Path = BACKEND_DIR / "Qwen3-Embedding-0.6B"

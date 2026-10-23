@@ -1,9 +1,30 @@
 # AWT-Assistant
 
 A local RAG chatbot for Army Welfare Trust (AWT) documents. It answers questions from a
-PDF knowledge base (Digital DAAK manual, P&P-25, communiqués, ...) with page citations,
-and can call tools (current date/time, extra document searches) when needed. Everything
-runs on your machine: no cloud APIs, no data leaves the box.
+PDF knowledge base (Digital DAAK manual, P&P-25, communiques, ...) with page-grounded
+answers, and can call tools (current date/time, document searches, contact lookup, and
+letter drafting) when needed. Everything runs on your machine: no cloud APIs, no data
+leaves the box.
+
+## Recent changes
+
+- The LLM backend is now **GenieX** at `http://127.0.0.1:18181`, using the model
+  reported by `/v1/models` (currently `local/gemma-4-e2b-q4_0:Q4_0`). Legacy
+  llama.cpp settings and client code are retained as comments in `config.py`,
+  `llm.py`, `agent.py`, and `.env.example`.
+- Start GenieX with **`--nctx 8192`**. The default 4096-token window can be
+  exhausted by conversation history plus reasoning, leaving no room for the
+  final answer.
+- Retrieval now uses the **top 3** chunks (`RAG_TOP_K=3`). If a retrieved chunk
+  belongs to an admin-created entry, every chunk sharing that `entry_id` is
+  included, so the context can exceed three chunks.
+- Admin text entries are chunked at **1,000 characters** with **150-character
+  overlap**.
+- Contact lookup uses the updated five-column directory: `Name`, `Designation`,
+  `Department`, `Floor`, and `Contact`. Mobile numbers were removed.
+- Chat answers are restricted to **English or Roman Urdu** and do not mention
+  tools, lookups, retrieval, sources, or how the answer was found.
+- The initial chat view shows only the bot avatar, without greeting text.
 
 ```
 ┌─────────────────────────── BROWSER ───────────────────────────┐
@@ -15,13 +36,13 @@ runs on your machine: no cloud APIs, no data leaves the box.
 │  FastAPI (uvicorn :8000)                                      │
 │  /api/chat/stream → agent.py (LangGraph)                      │
 │    ├─ rag.py  : embed question → ChromaDB → top-3 excerpts    │
-│    ├─ tools.py: get_current_datetime, search_documents        │
-│    └─ llm.py  : resolves model from llama.cpp                 │
+│    ├─ tools.py: time, docs, contacts, letters                 │
+│    └─ llm.py  : resolves model from GenieX                   │
 └───────────┬──────────────────────────────┬────────────────────┘
             │ OpenAI-compatible API        │ vector search
 ┌───────────▼──────────────┐   ┌───────────▼───────────────────┐
-│ llama.cpp server :8080   │   │ ChromaDB (backend/chroma_db)   │
-│ gemma-4-E2B-it Q4 (GGUF) │   │ collection "oas_documents"     │
+│ GenieX server :18181     │   │ ChromaDB (backend/chroma_db)   │
+│ gemma-4-e2b Q4           │   │ collection "oas_documents"     │
 │ emits reasoning_content  │   │ chunks tagged source + page    │
 └──────────────────────────┘   └───────────────────────────────┘
 ```
@@ -34,15 +55,16 @@ runs on your machine: no cloud APIs, no data leaves the box.
    **top-3** most similar chunks from ChromaDB. If a matched chunk belongs to an
    admin-created entry, all chunks for that entry are included.
 3. Excerpts are injected into the system prompt, tagged like `[PNP25.pdf, page 13]`,
-   with instructions to answer from them and cite `(file, page)`.
-4. The **LangGraph agent** calls the local LLM (via llama.cpp). The model's
+   with instructions to answer from them. Citations are shown only when the user
+   explicitly asks for sources.
+4. The **LangGraph agent** calls the local LLM (via GenieX). The model's
    `reasoning_content` is streamed separately from the answer.
 5. **Tool protocol**: the local model has no native tool support, so it requests tools
    by printing `{"tool": "get_current_datetime", "arguments": {}}`. The agent detects
    that JSON, hides it from the stream, executes the tool, feeds the result back, and
    the model writes the final answer (max 4 tool loops). If the injected excerpts do
-   not answer a document question, the model can call `search_documents` with refined
-   keywords to query the knowledge base again — the hybrid RAG fallback.
+   not answer a document question, the model can use the document, contact, or letter
+   tools with refined arguments — the hybrid RAG fallback.
 6. The stream ends with a `done` event. The UI shows a live "Thinking" box for the
    reasoning phase, then the answer with markdown rendering.
 
@@ -59,13 +81,16 @@ backend/
     api/routes.py      /api/health, /api/chat, /api/chat/stream (SSE)
     admin/             management API (auth, SQLite, sessions, overview)
     agent.py           LangGraph agent, tool JSON protocol, stream filtering
-    rag.py             ChromaDB retrieval + context builder
+    rag.py             ChromaDB retrieval, top-3 + admin-entry expansion
     knowledge.py       admin text chunking + ChromaDB writes
-    tools.py           tool registry (get_current_datetime, search_documents)
-    llm.py             llama.cpp client + model alias resolution
+    contacts.py        contact directory parsing, SQLite/FTS lookup
+    letter_agent.py    letter/certificate drafting
+    tools.py           tool registry (time, document/contact search, letters)
+    llm.py             GenieX client + model alias resolution
   scripts/             standalone ingestion tooling (not imported by the app)
     ingest_pdf.py      PDF → chunks → embeddings → ChromaDB (OCR fallback)
     search.py          retrieval test CLI
+  sql/contacts.sql     contact directory data (gitignored)
   pdfs/                source PDFs (gitignored)
   chroma_db/           vector store (gitignored, generated)
   Qwen3-Embedding-0.6B/ local embedding model (gitignored)
@@ -80,11 +105,14 @@ frontend/
 ## Prerequisites
 
 - Windows (PowerShell) with Python 3.11 and Node.js 18+.
-- **llama.cpp server** running an OpenAI-compatible endpoint on port 8080 with the
+- **GenieX server** running an OpenAI-compatible endpoint on port 18181 with the
   configured model, e.g.:
   ```powershell
-  .\llama-cpp\llama-server.exe -m D:\llama-cpp-cpu\gemma-4-E2B-it-Q4_K_M.gguf --port 8080
+  geniex serve --host 127.0.0.1:18181 --nctx 8192
   ```
+  Use the model id reported by `http://127.0.0.1:18181/v1/models` in
+  `GENIEX_MODEL`. Legacy llama.cpp settings and client lines remain commented in
+  `config.py`, `llm.py`, and `agent.py` for reference.
 - **Embedding model**: download `Qwen/Qwen3-Embedding-0.6B` (sentence-transformers
   format) into `backend/Qwen3-Embedding-0.6B`:
   ```powershell
@@ -110,9 +138,9 @@ Optional `.env` in `backend/` to override defaults:
 | --------------------- | ---------------------------------------- | -------------------------------- |
 | `HOST` / `PORT`       | `127.0.0.1` / `8000`                     | API bind address                 |
 | `CORS_ORIGINS`        | `http://localhost:5173,...`              | allowed browser origins          |
-| `LLAMA_BASE_URL`      | `http://127.0.0.1:8080`                  | llama.cpp server                 |
-| `LLAMA_MODEL`         | `gemma-4-E2B-it-Q4_K_M`                  | preferred model id/alias         |
-| `LLAMA_TIMEOUT`       | `300`                                    | LLM request timeout (seconds)    |
+| `GENIEX_BASE_URL`     | `http://127.0.0.1:18181`                 | GenieX server                    |
+| `GENIEX_MODEL`        | `local/gemma-4-e2b-q4_0:Q4_0`            | preferred model id/alias         |
+| `GENIEX_TIMEOUT`      | `300`                                    | LLM request timeout (seconds)    |
 | `CHROMA_DIR`          | `backend/chroma_db`                      | vector store location            |
 | `EMBEDDING_MODEL_DIR` | `backend/Qwen3-Embedding-0.6B`           | embedding model location         |
 | `RAG_COLLECTION`      | `oas_documents`                          | ChromaDB collection name         |
@@ -140,8 +168,8 @@ cd backend
   - `--ocr-dpi 300` higher quality for small print (slower)
   - `--ocr-min-chars 20` pages below this character count go to OCR
   - `--password <pw>` for password-protected PDFs (empty-password files need nothing)
-- Chunking: 1000 chars, 150 overlap. Metadata per chunk: `source` (file name),
-  `page`, `chunk`.
+- Chunking: 1000 chars, 150 overlap; PDF chunks do not cross page boundaries.
+  Metadata per chunk: `source` (file name), `page`, `chunk`.
 
 Verify retrieval:
 
@@ -186,11 +214,19 @@ For LAN access, use `http://<host-ip>:5173/admin`. The Vite proxy keeps `/api`
 same-origin; only add that origin to `CORS_ORIGINS` if the frontend targets the
 API directly.
 
+### 5. Contact directory
+
+`backend/sql/contacts.sql` supplies the `lookup_contact` tool. It uses five
+columns: `Name`, `Designation`, `Department`, `Floor`, and `Contact`. The file is
+loaded into an in-memory SQLite FTS5 index on first lookup; lookups support name,
+department, and contact/extension matching with fuzzy fallback. The SQL file is
+gitignored and stays local.
+
 ## Running
 
 ```powershell
 # terminal 1 - LLM
-D:\llama-cpp-cpu\llama-server.exe -m D:\llama-cpp-cpu\gemma-4-E2B-it-Q4_K_M.gguf --port 8080
+geniex serve --host 127.0.0.1:18181 --nctx 8192
 
 # terminal 2 - backend  (restart after every code change; no --reload by default)
 cd backend
@@ -257,10 +293,13 @@ or deleting an entry replaces/removes all of its chunks by entry ID.
 ## Troubleshooting
 
 - **`Configured model '...' not found; falling back ...`** — informational; the server
-  picked the only available model. Set `LLAMA_MODEL` to the reported id to silence it.
+  picked the only available model. Set `GENIEX_MODEL` to the reported id to silence it.
 - **Chat shows a raw `{"tool": ...}` JSON** — the backend is running old code; restart
   uvicorn. Tool JSON is suppressed by `agent.py` on the current code.
-- **`llama.cpp server unreachable` / 502** — start the llama-server, check port 8080.
+- **`GenieX server unreachable` / 502** — start `geniex serve`, check port 18181.
+- **GenieX context-length error or reasoning with no final answer** — restart it
+  with `--nctx 8192` (or `16384`). The default is 4096; long history plus
+  reasoning can consume the whole window and leave the answer empty.
 - **Answer cites the wrong file** — rebuild the collection if PDFs were replaced
   (ingest without `--append`).
 - **Port 8000 in use / stale behavior on Windows** — old uvicorn processes can linger:
@@ -271,9 +310,10 @@ or deleting an entry replaces/removes all of its chunks by entry ID.
 ## Notes
 
 - Gitignored: `*.pdf`, `backend/chroma_db/`, `backend/Qwen3-Embedding-0.6B/`,
-  `backend/admin.db`, `backend/.env`, `.venv/`, `node_modules/`, `dist/`. Source
-  documents, credentials, and generated data stay local.
+  `backend/admin.db`, `backend/.env`, `backend/sql/contacts.sql`, `.venv/`,
+  `node_modules/`, `dist/`. Source documents, credentials, contact data, and
+  generated data stay local.
 - The embedding model runs on CPU by default (`device: "cpu"` in `rag.py` /
-  `ingest_pdf.py`). GPU/NPU acceleration is not supported by this stack on Windows ARM.
+  `ingest_pdf.py`). GenieX uses its configured CPU/GPU/NPU backend for generation.
 - The admin knowledge-base page reports the current source and chunk counts for
   collection `oas_documents`.

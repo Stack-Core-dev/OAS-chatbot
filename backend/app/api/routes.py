@@ -57,7 +57,8 @@ def _save_turn(
         answer=answer,
         reasoning=reasoning,
         latency_ms=latency_ms,
-        model=settings.llama_model,
+        # model=settings.llama_model,
+        model=settings.geniex_model,
         status=status,
         error=error,
     )
